@@ -84,6 +84,9 @@ input bool     InpAllowMultiplePos     = true;             // Allow multiple pos
 input bool     InpEnablePushAlerts     = true;             // Enable push notifications
 input bool     InpEnableEmailAlerts    = false;            // Enable email alerts
 input bool     InpEnablePopupAlerts    = true;             // Enable popup alerts on chart
+input bool     InpEnableTelegram       = true;             // Enable Telegram alerts
+input string   InpTelegramBotToken    = "";                // Telegram Bot Token
+input string   InpTelegramChatID      = "";                // Telegram Chat ID
 
 //+------------------------------------------------------------------+
 //| GLOBAL VARIABLES                                                  |
@@ -129,6 +132,32 @@ PartialCloseInfo g_posTrack[];
 //+------------------------------------------------------------------+
 //| Send alert via all enabled channels                               |
 //+------------------------------------------------------------------+
+void SendTelegram(string message)
+{
+   if(!InpEnableTelegram) return;
+   if(InpTelegramBotToken == "" || InpTelegramChatID == "") return;
+
+   string url = "https://api.telegram.org/bot" + InpTelegramBotToken +
+                "/sendMessage?chat_id=" + InpTelegramChatID +
+                "&text=" + message;
+
+   char   post[];
+   char   result[];
+   string headers = "";
+   int    timeout = 5000;
+
+   ResetLastError();
+   int res = WebRequest("GET", url, headers, timeout, post, result, headers);
+   if(res == -1)
+   {
+      int err = GetLastError();
+      if(err == 4014)
+         Print("Telegram: Add https://api.telegram.org to Tools > Options > Expert Advisors > Allow WebRequest for listed URL");
+      else
+         Print("Telegram send failed. Error: ", err);
+   }
+}
+
 void SendAlert(string message)
 {
    Print(message);
@@ -141,6 +170,8 @@ void SendAlert(string message)
 
    if(InpEnableEmailAlerts)
       SendMail("XAUUSD Breakout Bot", message);
+
+   SendTelegram(message);
 }
 
 //+------------------------------------------------------------------+
