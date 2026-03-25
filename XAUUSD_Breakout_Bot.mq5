@@ -80,6 +80,11 @@ input int      InpMaxSlippagePoints    = 20;               // Max allowed slippa
 input int      InpMaxConcurrentPos     = 3;                // Max concurrent open positions
 input bool     InpAllowMultiplePos     = true;             // Allow multiple positions
 
+// -- Alerts --
+input bool     InpEnablePushAlerts     = true;             // Enable push notifications
+input bool     InpEnableEmailAlerts    = false;            // Enable email alerts
+input bool     InpEnablePopupAlerts    = true;             // Enable popup alerts on chart
+
 //+------------------------------------------------------------------+
 //| GLOBAL VARIABLES                                                  |
 //+------------------------------------------------------------------+
@@ -120,6 +125,23 @@ struct PartialCloseInfo
 };
 
 PartialCloseInfo g_posTrack[];
+
+//+------------------------------------------------------------------+
+//| Send alert via all enabled channels                               |
+//+------------------------------------------------------------------+
+void SendAlert(string message)
+{
+   Print(message);
+
+   if(InpEnablePopupAlerts)
+      Alert(message);
+
+   if(InpEnablePushAlerts)
+      SendNotification(message);
+
+   if(InpEnableEmailAlerts)
+      SendMail("XAUUSD Breakout Bot", message);
+}
 
 //+------------------------------------------------------------------+
 //| Expert initialization                                             |
@@ -387,7 +409,10 @@ void CheckAndEnter()
             g_tradesToday++;
             g_lastLongBreakoutLevel = breakoutHigh;
             TrackNewPosition(g_trade.ResultOrder(), entryPrice, MathAbs(entryPrice - sl));
-            Print("BUY order placed. Lots: ", lots, " Entry: ", entryPrice, " SL: ", sl, " TP: ", tp);
+            SendAlert("BUY opened | " + InpSymbol + " | Lots: " + DoubleToString(lots, 2) +
+                       " | Entry: " + DoubleToString(entryPrice, 2) +
+                       " | SL: " + DoubleToString(sl, 2) +
+                       " | TP: " + DoubleToString(tp, 2));
          }
          else
          {
@@ -419,7 +444,10 @@ void CheckAndEnter()
             g_tradesToday++;
             g_lastShortBreakoutLevel = breakoutLow;
             TrackNewPosition(g_trade.ResultOrder(), entryPrice, MathAbs(sl - entryPrice));
-            Print("SELL order placed. Lots: ", lots, " Entry: ", entryPrice, " SL: ", sl, " TP: ", tp);
+            SendAlert("SELL opened | " + InpSymbol + " | Lots: " + DoubleToString(lots, 2) +
+                       " | Entry: " + DoubleToString(entryPrice, 2) +
+                       " | SL: " + DoubleToString(sl, 2) +
+                       " | TP: " + DoubleToString(tp, 2));
          }
          else
          {
@@ -623,7 +651,8 @@ void ManageOpenPositions()
             if(g_trade.PositionModify(ticket, newSL, currentTP))
             {
                g_posTrack[trackIdx].movedToBE = true;
-               Print("Moved SL to breakeven for ticket ", ticket);
+               SendAlert("SL moved to breakeven | " + InpSymbol + " | Ticket: " + IntegerToString(ticket) +
+                          " | BE: " + DoubleToString(entryPrice, 2));
             }
          }
          else
@@ -646,7 +675,8 @@ void ManageOpenPositions()
             if(g_trade.PositionClosePartial(ticket, closeLots))
             {
                g_posTrack[trackIdx].partialClosed = true;
-               Print("Partial close ", closeLots, " lots for ticket ", ticket);
+               SendAlert("Partial close | " + InpSymbol + " | Closed " + DoubleToString(closeLots, 2) +
+                          " lots | Remaining: " + DoubleToString(lots - closeLots, 2) + " lots");
             }
          }
          else
@@ -713,6 +743,32 @@ void ManageOpenPositions()
 }
 
 //+------------------------------------------------------------------+
+//| Get profit of a closed position from deal history                 |
+//+------------------------------------------------------------------+
+double GetClosedProfit(ulong posTicket)
+{
+   datetime from = TimeCurrent() - 86400;
+   datetime to   = TimeCurrent();
+   HistorySelect(from, to);
+
+   for(int i = HistoryDealsTotal() - 1; i >= 0; i--)
+   {
+      ulong dealTicket = HistoryDealGetTicket(i);
+      if(dealTicket == 0) continue;
+
+      ENUM_DEAL_ENTRY dealEntry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
+      if(dealEntry == DEAL_ENTRY_OUT || dealEntry == DEAL_ENTRY_OUT_BY)
+      {
+         double profit = HistoryDealGetDouble(dealTicket, DEAL_PROFIT);
+         double swap   = HistoryDealGetDouble(dealTicket, DEAL_SWAP);
+         double comm   = HistoryDealGetDouble(dealTicket, DEAL_COMMISSION);
+         return profit + swap + comm;
+      }
+   }
+   return 0;
+}
+
+//+------------------------------------------------------------------+
 //| Remove tracking entries for closed positions                      |
 //+------------------------------------------------------------------+
 void CleanupClosedPositions()
@@ -733,6 +789,12 @@ void CleanupClosedPositions()
       {
          // Position was closed - update tracking
          g_lastTradeCloseTime = TimeCurrent();
+
+         // Check profit from deal history and alert
+         double closedProfit = GetClosedProfit(g_posTrack[i].ticket);
+         string profitStr = (closedProfit >= 0 ? "+" : "") + DoubleToString(closedProfit, 2);
+         SendAlert("Trade closed | " + InpSymbol + " | P/L: $" + profitStr +
+                    " | Balance: $" + DoubleToString(g_accountInfo.Balance(), 2));
 
          // Check if it was a loss using deal history
          UpdateConsecLosses(g_posTrack[i].ticket);
