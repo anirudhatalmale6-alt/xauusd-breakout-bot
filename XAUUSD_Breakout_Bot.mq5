@@ -210,6 +210,12 @@ int OnInit()
    g_lastDayReset = iTime(InpSymbol, PERIOD_D1, 0);
 
    Print("XAUUSD Breakout Bot initialized. Balance: ", g_accountInfo.Balance());
+
+   // Send startup notification
+   SendAlert("XAUUSD Breakout Bot started | Balance: $" +
+             DoubleToString(g_accountInfo.Balance(), 2) +
+             " | AutoTrading: ON");
+
    return INIT_SUCCEEDED;
 }
 
